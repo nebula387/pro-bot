@@ -72,7 +72,14 @@ CATEGORY_NAME = {
 }
 
 def md_to_html(text: str) -> str:
+    # Убираем блоки размышлений Qwen
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
     text = text.replace("&", "&amp;")
+    # ... остальной код без изменений
+
+# def md_to_html(text: str) -> str:
+#     text = text.replace("&", "&amp;")
     text = re.sub(
         r"```(\w+)?\n?(.*?)```",
         lambda m: f"<pre><code>{m.group(2).strip()}</code></pre>",
