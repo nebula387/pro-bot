@@ -72,14 +72,7 @@ CATEGORY_NAME = {
 }
 
 def md_to_html(text: str) -> str:
-    # Убираем блоки размышлений Qwen
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-
     text = text.replace("&", "&amp;")
-    # ... остальной код без изменений
-
-# def md_to_html(text: str) -> str:
-#     text = text.replace("&", "&amp;")
     text = re.sub(
         r"```(\w+)?\n?(.*?)```",
         lambda m: f"<pre><code>{m.group(2).strip()}</code></pre>",
@@ -216,10 +209,18 @@ async def process_message(message: Message, user_text: str):
         search_results = search(user_text)
 
     save_message(user_id, new_category, "user", user_text)
-    response = ask(user_text, new_category, search_results, history=history)
+    response, rewritten = ask(user_text, new_category, search_results, history=history)
     save_message(user_id, new_category, "assistant", response)
 
     await status.delete()
+
+    # Показываем переформулированный вопрос если он изменился
+    if rewritten.lower().strip() != user_text.lower().strip():
+        await message.reply(
+            f"📝 <i>Уточнённый вопрос: {rewritten}</i>",
+            parse_mode="HTML"
+        )
+
     await send_response(message, f"{emoji} {response}")
 
 

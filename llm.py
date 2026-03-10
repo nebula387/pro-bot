@@ -7,13 +7,49 @@ client = OpenAI(
     api_key=OPENROUTER_API_KEY,
 )
 
+REWRITE_PROMPT = """Ты технический редактор. Переформулируй вопрос чётко и профессионально.
+Исправь сленг, опечатки, неточные названия технологий и оборудования.
+Сохрани исходный смысл вопроса.
+Ответь ТОЛЬКО переформулированным вопросом, без пояснений и кавычек.
+
+Вопрос: {question}"""
+
+def rewrite_query(user_message: str, category: str) -> str:
+    """Переформулирует вопрос для технических категорий (code, network)"""
+    if category not in ("code", "network"):
+        return user_message
+
+    try:
+        response = client.chat.completions.create(
+            model=MODELS["general"],  # быстрая модель для переформулирования
+            messages=[{
+                "role": "user",
+                "content": REWRITE_PROMPT.format(question=user_message)
+            }],
+            max_tokens=200,
+            temperature=0,
+        )
+        rewritten = response.choices[0].message.content.strip()
+        # Защита — если модель вернула слишком длинный или пустой ответ
+        if not rewritten or len(rewritten) > len(user_message) * 3:
+            return user_message
+        return rewritten
+    except Exception:
+        return user_message  # при ошибке возвращаем оригинал
+
+
 def ask(user_message: str, category: str, search_results: str = None,
-        history: list = None, document: str = None) -> str:
+        history: list = None, document: str = None) -> tuple[str, str]:
+    """
+    Возвращает (ответ, переформулированный_вопрос).
+    Если переформулирование не применялось — второй элемент равен user_message.
+    """
+    # Переформулируем для технических вопросов
+    rewritten = rewrite_query(user_message, category)
 
     model = MODELS.get(category, MODELS["general"])
     system = SYSTEM_PROMPTS.get(category, SYSTEM_PROMPTS["general"])
 
-    # Добавляем документ в системный промпт
     if document:
         system += (
             f"\n\nПользователь загрузил документ для анализа. "
@@ -30,7 +66,7 @@ def ask(user_message: str, category: str, search_results: str = None,
     if history:
         messages.extend(history)
 
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": rewritten})
 
     try:
         response = client.chat.completions.create(
@@ -39,7 +75,7 @@ def ask(user_message: str, category: str, search_results: str = None,
             max_tokens=2048,
             temperature=0.7,
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content, rewritten
 
     except Exception as e:
-        return f"⚠️ Ошибка модели ({model}): {e}"
+        return f"⚠️ Ошибка модели ({model}): {e}", rewritten
