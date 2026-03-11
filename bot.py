@@ -3,10 +3,10 @@ import logging
 import re
 import time
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart, Command
 
-from config import TELEGRAM_TOKEN, BOT_NAMES
+from config import TELEGRAM_TOKEN, BOT_NAMES, MODELS, MODELS_SMART
 from classifier import classify, extract_city
 from llm import ask
 from search import search, get_weather
@@ -16,32 +16,39 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# ─── История диалогов ─────────────────────────────────────────────────────────
+# ─── История и состояние пользователей ───────────────────────────────────────
+# { user_id: { "category": str, "history": [...], "last_time": float, "smart": bool } }
 conversations: dict = {}
 CONTEXT_TIMEOUT = 30 * 60
 MAX_HISTORY = 10
 
+SMART_CATEGORIES = {"code", "network", "legal"}  # категории с кнопкой smart
+
+def get_data(user_id: int) -> dict:
+    if user_id not in conversations:
+        conversations[user_id] = {"category": None, "history": [], "last_time": time.time(), "smart": False}
+    return conversations[user_id]
+
 def get_history(user_id: int) -> list:
-    data = conversations.get(user_id)
-    if not data:
-        return []
+    data = get_data(user_id)
     if time.time() - data["last_time"] > CONTEXT_TIMEOUT:
-        conversations.pop(user_id, None)
-        return []
+        data["history"] = []
     return data["history"]
 
 def get_category(user_id: int) -> str | None:
-    data = conversations.get(user_id)
-    if not data:
-        return None
+    data = get_data(user_id)
     if time.time() - data["last_time"] > CONTEXT_TIMEOUT:
         return None
     return data.get("category")
 
+def is_smart(user_id: int) -> bool:
+    return get_data(user_id).get("smart", False)
+
+def set_smart(user_id: int, value: bool):
+    get_data(user_id)["smart"] = value
+
 def save_message(user_id: int, category: str, role: str, content: str):
-    if user_id not in conversations:
-        conversations[user_id] = {"category": category, "history": [], "last_time": time.time()}
-    data = conversations[user_id]
+    data = get_data(user_id)
     data["last_time"] = time.time()
     data["category"] = category
     data["history"].append({"role": role, "content": content})
@@ -49,7 +56,9 @@ def save_message(user_id: int, category: str, role: str, content: str):
         data["history"] = data["history"][-(MAX_HISTORY * 2):]
 
 def reset_history(user_id: int):
-    conversations.pop(user_id, None)
+    data = get_data(user_id)
+    data["history"] = []
+    data["category"] = None
 
 # ─── Форматирование ───────────────────────────────────────────────────────────
 
@@ -112,13 +121,53 @@ def split_long_message(text: str, limit: int = 4000) -> list[str]:
     parts.append(text)
     return parts
 
-async def send_response(message: Message, text: str):
+async def send_response(message: Message, text: str, keyboard=None):
     html = md_to_html(text)
-    for part in split_long_message(html):
+    parts = split_long_message(html)
+    for i, part in enumerate(parts):
+        is_last = (i == len(parts) - 1)
         try:
-            await message.reply(part, parse_mode="HTML")
+            await message.reply(
+                part,
+                parse_mode="HTML",
+                reply_markup=keyboard if is_last else None
+            )
         except Exception:
             await message.reply(part)
+
+# ─── Клавиатура Smart ─────────────────────────────────────────────────────────
+
+def smart_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup | None:
+    """Кнопка переключения модели — только для code/network/legal"""
+    if category not in SMART_CATEGORIES:
+        return None
+    smart = is_smart(user_id)
+    label = "⚡ Fast модель" if smart else "💎 Smart модель"
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=label, callback_data=f"toggle_smart:{category}")
+    ]])
+
+# ─── Callbacks ────────────────────────────────────────────────────────────────
+
+@dp.callback_query(F.data.startswith("toggle_smart:"))
+async def handle_toggle_smart(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    category = callback.data.split(":")[1]
+
+    new_smart = not is_smart(user_id)
+    set_smart(user_id, new_smart)
+
+    # Обновляем кнопку
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=smart_keyboard(user_id, category)
+        )
+    except Exception:
+        pass
+
+    model = MODELS_SMART.get(category) if new_smart else MODELS.get(category)
+    badge = "💎 Smart" if new_smart else "⚡ Fast"
+    await callback.answer(f"{badge}: {model}")
 
 # ─── Команды ─────────────────────────────────────────────────────────────────
 
@@ -133,8 +182,8 @@ async def start(message: Message):
         "🌤 Погодой и прогнозом\n"
         "🔍 Актуальными новостями и поиском\n\n"
         "Пиши текстом или отправляй голосовые!\n"
-        "/new — начать новый диалог\n"
-        "/help — справка",
+        "Для сложных вопросов нажми кнопку <b>💎 Smart</b> под ответом.\n"
+        "/new — начать новый диалог",
         parse_mode="HTML"
     )
 
@@ -147,11 +196,13 @@ async def new_dialog(message: Message):
 async def help_cmd(message: Message):
     await message.reply(
         "ℹ️ <b>Как пользоваться:</b>\n\n"
-        "Задай вопрос текстом или голосовым сообщением.\n"
-        "Бот определит тему и выберет лучшую модель.\n"
-        "Контекст диалога сохраняется пока тема не меняется.\n\n"
+        "Задай вопрос текстом или голосовым.\n"
+        "Бот определит тему и выберет модель автоматически.\n\n"
+        "<b>Кнопка под ответом:</b>\n"
+        "💎 Smart — умная модель для сложных вопросов\n"
+        "⚡ Fast — вернуться к быстрой\n\n"
         "<b>Команды:</b>\n"
-        "/new — сбросить контекст, начать заново\n\n"
+        "/new — сбросить контекст\n\n"
         "<b>Примеры:</b>\n"
         "• <i>Какая погода в Москве?</i>\n"
         "• <i>Как настроить VLAN на Cisco?</i>\n"
@@ -166,13 +217,10 @@ async def help_cmd(message: Message):
 @dp.message(F.voice)
 async def handle_voice(message: Message):
     status = await message.reply("🎤 <i>Распознаю речь...</i>", parse_mode="HTML")
-
     try:
         file = await bot.get_file(message.voice.file_id)
         audio_bytes = await bot.download_file(file.file_path)
-        content = audio_bytes.read()
-
-        text = transcribe(content, "voice.ogg")
+        text = transcribe(audio_bytes.read(), "voice.ogg")
 
         if text.startswith("ERROR:") or not text:
             await status.delete()
@@ -204,7 +252,10 @@ async def process_message(message: Message, user_text: str):
 
     emoji = CATEGORY_EMOJI.get(new_category, "🤖")
     name = CATEGORY_NAME.get(new_category, "")
-    status = await message.reply(f"{emoji} <i>{name}...</i>", parse_mode="HTML")
+    smart = is_smart(user_id)
+    badge = " 💎" if smart and new_category in SMART_CATEGORIES else ""
+
+    status = await message.reply(f"{emoji} <i>{name}{badge}...</i>", parse_mode="HTML")
     await bot.send_chat_action(message.chat.id, "typing")
 
     if new_category == "weather":
@@ -221,19 +272,22 @@ async def process_message(message: Message, user_text: str):
         search_results = search(user_text)
 
     save_message(user_id, new_category, "user", user_text)
-    response, rewritten = ask(user_text, new_category, search_results, history=history)
+    response, rewritten = ask(
+        user_text, new_category, search_results,
+        history=history, use_smart=smart
+    )
     save_message(user_id, new_category, "assistant", response)
 
     await status.delete()
 
-    # Показываем переформулированный вопрос если он изменился
     if rewritten.lower().strip() != user_text.lower().strip():
         await message.reply(
             f"📝 <i>Уточнённый вопрос: {rewritten}</i>",
             parse_mode="HTML"
         )
 
-    await send_response(message, f"{emoji} {response}")
+    keyboard = smart_keyboard(user_id, new_category)
+    await send_response(message, f"{emoji} {response}", keyboard=keyboard)
 
 
 @dp.message(F.text)

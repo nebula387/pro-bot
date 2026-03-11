@@ -5,20 +5,27 @@ TELEGRAM_TOKEN = "ВАШ_TELEGRAM_TOKEN"
 
 # API ключи
 OPENROUTER_API_KEY = "ВАШ_OPENROUTER_KEY"
-GROQ_API_KEY = "ВАШ_GROQ_KEY"
-TAVILY_API_KEY = "ВАШ_TAVILY_KEY"
-WEATHER_API_KEY = "ВАШ_WEATHERAPI_KEY"  # weatherapi.com
+GROQ_API_KEY       = "ВАШ_GROQ_KEY"
+TAVILY_API_KEY     = "ВАШ_TAVILY_KEY"
+WEATHER_API_KEY    = "ВАШ_WEATHERAPI_KEY"
 
-# Модели по задачам (OpenRouter)
+# Модели по умолчанию (бесплатные)
 MODELS = {
-    "code":    "qwen/qwen3-235b-a22b",
-    "network": "qwen/qwen3-235b-a22b",
-    "legal":   "google/gemini-2.5-pro",
+    "code":    "deepseek/deepseek-v3",
+    "network": "deepseek/deepseek-v3",    # сильная бесплатная
+    "legal":   "meta-llama/llama-4-maverick",   # сильная бесплатная
     "search":  "google/gemini-2.0-flash-001",
     "general": "google/gemini-2.0-flash-001",
 }
 
-# Модель для классификации и извлечения города
+# Smart модели по кнопке (платные/мощные)
+MODELS_SMART = {
+    "code":    "qwen/qwen3-235b-a22b",          # лучший для кода
+    "network": "qwen/qwen3-235b-a22b",          # лучший для сетей
+    "legal":   "google/gemini-2.5-pro",         # лучший для права
+}
+
+# Модель для классификации и переформулирования
 CLASSIFIER_MODEL = "google/gemini-2.0-flash-001"
 
 # Имена бота в групповом чате

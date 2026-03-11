@@ -1,5 +1,5 @@
 from openai import OpenAI
-from config import OPENROUTER_API_KEY, MODELS
+from config import OPENROUTER_API_KEY, MODELS, MODELS_SMART
 from prompts import SYSTEM_PROMPTS
 
 client = OpenAI(
@@ -15,39 +15,38 @@ REWRITE_PROMPT = """Ты технический редактор. Перефор
 Вопрос: {question}"""
 
 def rewrite_query(user_message: str, category: str) -> str:
-    """Переформулирует вопрос для технических категорий (code, network)"""
+    """Переформулирует вопрос для технических категорий"""
     if category not in ("code", "network"):
         return user_message
-
     try:
         response = client.chat.completions.create(
-            model=MODELS["general"],  # быстрая модель для переформулирования
-            messages=[{
-                "role": "user",
-                "content": REWRITE_PROMPT.format(question=user_message)
-            }],
+            model=MODELS["general"],
+            messages=[{"role": "user", "content": REWRITE_PROMPT.format(question=user_message)}],
             max_tokens=200,
             temperature=0,
         )
         rewritten = response.choices[0].message.content.strip()
-        # Защита — если модель вернула слишком длинный или пустой ответ
         if not rewritten or len(rewritten) > len(user_message) * 3:
             return user_message
         return rewritten
     except Exception:
-        return user_message  # при ошибке возвращаем оригинал
-
+        return user_message
 
 def ask(user_message: str, category: str, search_results: str = None,
-        history: list = None, document: str = None) -> tuple[str, str]:
+        history: list = None, document: str = None,
+        use_smart: bool = False) -> tuple[str, str]:
     """
     Возвращает (ответ, переформулированный_вопрос).
-    Если переформулирование не применялось — второй элемент равен user_message.
+    use_smart=True — использует модель из MODELS_SMART если есть.
     """
-    # Переформулируем для технических вопросов
     rewritten = rewrite_query(user_message, category)
 
-    model = MODELS.get(category, MODELS["general"])
+    # Выбираем модель
+    if use_smart and category in MODELS_SMART:
+        model = MODELS_SMART[category]
+    else:
+        model = MODELS.get(category, MODELS["general"])
+
     system = SYSTEM_PROMPTS.get(category, SYSTEM_PROMPTS["general"])
 
     if document:
@@ -62,10 +61,8 @@ def ask(user_message: str, category: str, search_results: str = None,
         system += f"\n\nАктуальные данные из интернета:\n{search_results}"
 
     messages = [{"role": "system", "content": system}]
-
     if history:
         messages.extend(history)
-
     messages.append({"role": "user", "content": rewritten})
 
     try:
@@ -76,6 +73,5 @@ def ask(user_message: str, category: str, search_results: str = None,
             temperature=0.7,
         )
         return response.choices[0].message.content, rewritten
-
     except Exception as e:
         return f"⚠️ Ошибка модели ({model}): {e}", rewritten
