@@ -72,6 +72,18 @@ CATEGORY_NAME = {
 }
 
 def md_to_html(text: str) -> str:
+    # Убираем think-блоки Qwen
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    # Если модель уже вернула HTML — только чистим двойные теги
+    if re.search(r"<(b|i|pre|code|a)\b", text):
+        text = re.sub(r"<b>\s*<b>", "<b>", text)
+        text = re.sub(r"</b>\s*</b>", "</b>", text)
+        text = re.sub(r"<i>\s*<i>", "<i>", text)
+        text = re.sub(r"</i>\s*</i>", "</i>", text)
+        return text.strip()
+
+    # Иначе конвертируем Markdown → HTML
     text = text.replace("&", "&amp;")
     text = re.sub(
         r"```(\w+)?\n?(.*?)```",
