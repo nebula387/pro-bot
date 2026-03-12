@@ -3,7 +3,10 @@ import logging
 import re
 import time
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import (
+    Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
+    ReplyKeyboardMarkup, KeyboardButton
+)
 from aiogram.filters import CommandStart, Command
 
 from config import TELEGRAM_TOKEN, BOT_NAMES, MODELS, MODELS_SMART
@@ -77,7 +80,7 @@ CATEGORY_NAME = {
     "legal":   "Право",
     "weather": "Погода",
     "search":  "Поиск и анализ",
-    "general": "general",
+    "general": "Общий вопрос",
 }
 
 def md_to_html(text: str) -> str:
@@ -124,7 +127,7 @@ def split_long_message(text: str, limit: int = 4000) -> list[str]:
     parts.append(text)
     return parts
 
-async def send_response(message: Message, text: str, keyboard=None):
+async def send_response(message: Message, text: str, keyboard=None, reply_kb=None):
     html = md_to_html(text)
     parts = split_long_message(html)
     for i, part in enumerate(parts):
@@ -137,6 +140,9 @@ async def send_response(message: Message, text: str, keyboard=None):
             )
         except Exception:
             await message.reply(part)
+    # Reply-клавиатура отправляется отдельным невидимым сообщением
+    if reply_kb:
+        await message.answer("​", reply_markup=reply_kb)
 
 # ─── Клавиатура Smart ─────────────────────────────────────────────────────────
 
@@ -149,6 +155,30 @@ def smart_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=label, callback_data=f"toggle_smart:{category}")
     ]])
+
+# ─── Reply клавиатуры ─────────────────────────────────────────────────────────
+
+def main_keyboard() -> ReplyKeyboardMarkup:
+    """Главное меню — показывается в начале"""
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text="📋 Help"),
+            KeyboardButton(text="👋 Start"),
+        ]],
+        resize_keyboard=True,
+        input_field_placeholder="Задай вопрос..."
+    )
+
+def dialog_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура во время диалога"""
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text="🔄 New"),
+            KeyboardButton(text="📋 Help"),
+        ]],
+        resize_keyboard=True,
+        input_field_placeholder="Задай вопрос..."
+    )
 
 # ─── Callbacks ────────────────────────────────────────────────────────────────
 
@@ -176,6 +206,7 @@ async def handle_toggle_smart(callback: CallbackQuery):
 
 @dp.message(CommandStart())
 async def start(message: Message):
+    reset_history(message.from_user.id)
     await message.reply(
         "👋 Привет! Я профессиональный ассистент.\n\n"
         "Помогу с:\n"
@@ -185,15 +216,15 @@ async def start(message: Message):
         "🌤 Погодой и прогнозом\n"
         "🔍 Актуальными новостями и поиском\n\n"
         "Пиши текстом или отправляй голосовые!\n"
-        "Для сложных вопросов нажми кнопку <b>💎 Smart</b> под ответом.\n"
-        "/new — начать новый диалог",
-        parse_mode="HTML"
+        "Для сложных вопросов нажми <b>💎 Smart</b> под ответом.",
+        parse_mode="HTML",
+        reply_markup=main_keyboard()
     )
 
 @dp.message(Command("new"))
 async def new_dialog(message: Message):
     reset_history(message.from_user.id)
-    await message.reply("🔄 Начат новый диалог!")
+    await message.reply("🔄 Начат новый диалог!", reply_markup=main_keyboard())
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -204,16 +235,27 @@ async def help_cmd(message: Message):
         "<b>Кнопка под ответом:</b>\n"
         "💎 Smart — умная модель для сложных вопросов\n"
         "⚡ Fast — вернуться к быстрой\n\n"
-        "<b>Команды:</b>\n"
-        "/new — сбросить контекст\n\n"
         "<b>Примеры:</b>\n"
         "• <i>Какая погода в Москве?</i>\n"
         "• <i>Как настроить VLAN на Cisco?</i>\n"
         "• <i>Напиши скрипт на Python</i>\n"
         "• <i>Какие права у работника при увольнении?</i>\n\n"
         "В групповом чате: <b>бот, вопрос</b>",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=main_keyboard()
     )
+
+# ─── Обработчик кнопок главного меню ─────────────────────────────────────────
+
+@dp.message(F.text.in_({"📋 Help", "👋 Start", "🔄 New"}))
+async def handle_menu_buttons(message: Message):
+    text = message.text
+    if text == "👋 Start":
+        await start(message)
+    elif text == "📋 Help":
+        await help_cmd(message)
+    elif text == "🔄 New":
+        await new_dialog(message)
 
 # ─── Голосовые сообщения ──────────────────────────────────────────────────────
 
@@ -282,8 +324,8 @@ async def process_message(message: Message, user_text: str):
     save_message(user_id, new_category, "assistant", response)
 
     await status.delete()
-    keyboard = smart_keyboard(user_id, new_category)
-    await send_response(message, f"{emoji} {response}", keyboard=keyboard)
+    inline_kb = smart_keyboard(user_id, new_category)
+    await send_response(message, f"{emoji} {response}", keyboard=inline_kb, reply_kb=dialog_keyboard())
 
 
 @dp.message(F.text)
