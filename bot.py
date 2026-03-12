@@ -5,7 +5,7 @@ import time
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
-    ReplyKeyboardMarkup, KeyboardButton
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
 from aiogram.filters import CommandStart, Command
 
@@ -127,7 +127,7 @@ def split_long_message(text: str, limit: int = 4000) -> list[str]:
     parts.append(text)
     return parts
 
-async def send_response(message: Message, text: str, keyboard=None, reply_kb=None):
+async def send_response(message: Message, text: str, keyboard=None):
     html = md_to_html(text)
     parts = split_long_message(html)
     for i, part in enumerate(parts):
@@ -140,40 +140,24 @@ async def send_response(message: Message, text: str, keyboard=None, reply_kb=Non
             )
         except Exception:
             await message.reply(part)
-    # Reply-клавиатура отправляется отдельным невидимым сообщением
-    if reply_kb:
-        await message.answer("​", reply_markup=reply_kb)
+
 
 # ─── Клавиатура Smart ─────────────────────────────────────────────────────────
 
-def smart_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup | None:
-    """Кнопка переключения модели — только для code/network/legal"""
-    if category not in SMART_CATEGORIES:
-        return None
-    smart = is_smart(user_id)
-    label = "⚡ Fast модель" if smart else "💎 Smart модель"
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=label, callback_data=f"toggle_smart:{category}")
-    ]])
+def response_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
+    """Inline кнопки под каждым ответом: New + Smart (если применимо)"""
+    buttons = [InlineKeyboardButton(text="🔄 New", callback_data="new_dialog")]
+    if category in SMART_CATEGORIES:
+        smart = is_smart(user_id)
+        label = "⚡ Fast" if smart else "💎 Smart"
+        buttons.append(InlineKeyboardButton(text=label, callback_data=f"toggle_smart:{category}"))
+    return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ─── Reply клавиатуры ─────────────────────────────────────────────────────────
-
-def main_keyboard() -> ReplyKeyboardMarkup:
-    """Главное меню — показывается в начале"""
+def start_keyboard() -> ReplyKeyboardMarkup:
+    """Reply клавиатура — показывается только при старте/новом диалоге"""
     return ReplyKeyboardMarkup(
         keyboard=[[
-            KeyboardButton(text="📋 Help"),
             KeyboardButton(text="👋 Start"),
-        ]],
-        resize_keyboard=True,
-        input_field_placeholder="Задай вопрос..."
-    )
-
-def dialog_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура во время диалога"""
-    return ReplyKeyboardMarkup(
-        keyboard=[[
-            KeyboardButton(text="🔄 New"),
             KeyboardButton(text="📋 Help"),
         ]],
         resize_keyboard=True,
@@ -181,6 +165,16 @@ def dialog_keyboard() -> ReplyKeyboardMarkup:
     )
 
 # ─── Callbacks ────────────────────────────────────────────────────────────────
+
+@dp.callback_query(F.data == "new_dialog")
+async def handle_new_dialog(callback: CallbackQuery):
+    reset_history(callback.from_user.id)
+    await callback.answer("🔄 Новый диалог начат!")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer("🔄 Новый диалог! Задай вопрос.", reply_markup=start_keyboard())
 
 @dp.callback_query(F.data.startswith("toggle_smart:"))
 async def handle_toggle_smart(callback: CallbackQuery):
@@ -193,7 +187,7 @@ async def handle_toggle_smart(callback: CallbackQuery):
     # Обновляем кнопку
     try:
         await callback.message.edit_reply_markup(
-            reply_markup=smart_keyboard(user_id, category)
+            reply_markup=response_keyboard(user_id, category)
         )
     except Exception:
         pass
@@ -217,14 +211,13 @@ async def start(message: Message):
         "🔍 Актуальными новостями и поиском\n\n"
         "Пиши текстом или отправляй голосовые!\n"
         "Для сложных вопросов нажми <b>💎 Smart</b> под ответом.",
-        parse_mode="HTML",
-        reply_markup=main_keyboard()
+        parse_mode="HTML"
     )
 
 @dp.message(Command("new"))
 async def new_dialog(message: Message):
     reset_history(message.from_user.id)
-    await message.reply("🔄 Начат новый диалог!", reply_markup=main_keyboard())
+    await message.reply("🔄 Начат новый диалог!", reply_markup=start_keyboard())
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -241,21 +234,12 @@ async def help_cmd(message: Message):
         "• <i>Напиши скрипт на Python</i>\n"
         "• <i>Какие права у работника при увольнении?</i>\n\n"
         "В групповом чате: <b>бот, вопрос</b>",
-        parse_mode="HTML",
-        reply_markup=main_keyboard()
+        parse_mode="HTML"
     )
 
 # ─── Обработчик кнопок главного меню ─────────────────────────────────────────
 
-@dp.message(F.text.in_({"📋 Help", "👋 Start", "🔄 New"}))
-async def handle_menu_buttons(message: Message):
-    text = message.text
-    if text == "👋 Start":
-        await start(message)
-    elif text == "📋 Help":
-        await help_cmd(message)
-    elif text == "🔄 New":
-        await new_dialog(message)
+
 
 # ─── Голосовые сообщения ──────────────────────────────────────────────────────
 
@@ -300,7 +284,11 @@ async def process_message(message: Message, user_text: str):
     smart = is_smart(user_id)
     badge = " 💎" if smart and new_category in SMART_CATEGORIES else ""
 
-    status = await message.reply(f"{emoji} <i>{name}{badge}...</i>", parse_mode="HTML")
+    status = await message.reply(
+        f"{emoji} <i>{name}{badge}...</i>",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove()  # убираем reply keyboard как только начали отвечать
+    )
     await bot.send_chat_action(message.chat.id, "typing")
 
     if new_category == "weather":
@@ -324,9 +312,16 @@ async def process_message(message: Message, user_text: str):
     save_message(user_id, new_category, "assistant", response)
 
     await status.delete()
-    inline_kb = smart_keyboard(user_id, new_category)
-    await send_response(message, f"{emoji} {response}", keyboard=inline_kb, reply_kb=dialog_keyboard())
+    inline_kb = response_keyboard(user_id, new_category)
+    await send_response(message, f"{emoji} {response}", keyboard=inline_kb)
 
+
+@dp.message(F.text.in_({"👋 Start", "📋 Help"}))
+async def handle_reply_buttons(message: Message):
+    if message.text == "👋 Start":
+        await start(message)
+    elif message.text == "📋 Help":
+        await help_cmd(message)
 
 @dp.message(F.text)
 async def handle_message(message: Message):
