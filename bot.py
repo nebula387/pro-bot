@@ -81,31 +81,34 @@ CATEGORY_NAME = {
 }
 
 def md_to_html(text: str) -> str:
-    # Убираем think-блоки Qwen
+    # 1. Убираем think-блоки Qwen и случайные HTML теги от модели
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"<[^>]+>", lambda m: m.group() if m.group() in
+                  ("<b>","</b>","<i>","</i>","<code>","</code>",
+                   "<pre>","</pre>") else "", text)
 
-    # Если модель уже вернула HTML — только чистим двойные теги
-    if re.search(r"<(b|i|pre|code|a)\b", text):
-        text = re.sub(r"<b>\s*<b>", "<b>", text)
-        text = re.sub(r"</b>\s*</b>", "</b>", text)
-        text = re.sub(r"<i>\s*<i>", "<i>", text)
-        text = re.sub(r"</i>\s*</i>", "</i>", text)
-        return text.strip()
-
-    # Иначе конвертируем Markdown → HTML
+    # 2. Экранируем амперсанды вне тегов
     text = text.replace("&", "&amp;")
+
+    # 3. Блоки кода — обрабатываем первыми чтобы не трогать содержимое
     text = re.sub(
         r"```(\w+)?\n?(.*?)```",
         lambda m: f"<pre><code>{m.group(2).strip()}</code></pre>",
         text, flags=re.DOTALL
     )
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", text)
+
+    # 4. Жирный и курсив
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
     text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
-    text = re.sub(r"_(.+?)_", r"<i>\1</i>", text)
+
+    # 5. Заголовки → жирный
     text = re.sub(r"^#{1,3} (.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+
+    # 6. Ссылки
     text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', text)
+
     return text.strip()
 
 def split_long_message(text: str, limit: int = 4000) -> list[str]:
@@ -272,20 +275,13 @@ async def process_message(message: Message, user_text: str):
         search_results = search(user_text)
 
     save_message(user_id, new_category, "user", user_text)
-    response, rewritten = ask(
+    response = ask(
         user_text, new_category, search_results,
         history=history, use_smart=smart
     )
     save_message(user_id, new_category, "assistant", response)
 
     await status.delete()
-
-    if rewritten.lower().strip() != user_text.lower().strip():
-        await message.reply(
-            f"📝 <i>Уточнённый вопрос: {rewritten}</i>",
-            parse_mode="HTML"
-        )
-
     keyboard = smart_keyboard(user_id, new_category)
     await send_response(message, f"{emoji} {response}", keyboard=keyboard)
 
