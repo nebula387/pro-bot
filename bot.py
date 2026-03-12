@@ -80,7 +80,7 @@ CATEGORY_NAME = {
     "legal":   "Право",
     "weather": "Погода",
     "search":  "Поиск и анализ",
-    "general": "Общий вопрос",
+    "general": "general",
 }
 
 def md_to_html(text: str) -> str:
