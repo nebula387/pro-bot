@@ -80,7 +80,7 @@ CATEGORY_NAME = {
     "legal":   "Право",
     "weather": "Погода",
     "search":  "Поиск и анализ",
-    "general": "Общий вопрос",
+    "general": "general",
 }
 
 def md_to_html(text: str) -> str:
@@ -140,9 +140,13 @@ async def send_response(message: Message, text: str, keyboard=None, reply_kb=Non
             )
         except Exception:
             await message.reply(part)
-    # Reply-клавиатура отправляется отдельным невидимым сообщением
+    # Reply-клавиатура — отправляем и сразу удаляем сообщение-носитель
     if reply_kb:
-        await message.answer("​", reply_markup=reply_kb)
+        try:
+            kb_msg = await message.answer(".", reply_markup=reply_kb)
+            await kb_msg.delete()
+        except Exception:
+            await message.answer(".", reply_markup=reply_kb)
 
 # ─── Клавиатура Smart ─────────────────────────────────────────────────────────
 
