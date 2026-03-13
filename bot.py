@@ -284,11 +284,14 @@ async def process_message(message: Message, user_text: str):
     smart = is_smart(user_id)
     badge = " 💎" if smart and new_category in SMART_CATEGORIES else ""
 
-    status = await message.reply(
-        f"{emoji} <i>{name}{badge}...</i>",
-        parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove()  # убираем reply keyboard как только начали отвечать
-    )
+    # Убираем reply keyboard отдельно — edit_text её теряет
+    try:
+        rm = await message.answer(".", reply_markup=ReplyKeyboardRemove())
+        await rm.delete()
+    except Exception:
+        pass
+
+    status = await message.reply(f"{emoji} <i>{name}{badge}...</i>", parse_mode="HTML")
     await bot.send_chat_action(message.chat.id, "typing")
 
     if new_category == "weather":
