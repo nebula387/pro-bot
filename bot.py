@@ -80,37 +80,46 @@ CATEGORY_NAME = {
     "legal":   "Право",
     "weather": "Погода",
     "search":  "Поиск и анализ",
-    "general": "general",
+    "general": "gereral",
 }
 
 def md_to_html(text: str) -> str:
-    # 1. Убираем think-блоки Qwen и случайные HTML теги от модели
+    # 1. Убираем think-блоки
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    text = re.sub(r"<[^>]+>", lambda m: m.group() if m.group() in
-                  ("<b>","</b>","<i>","</i>","<code>","</code>",
-                   "<pre>","</pre>") else "", text)
 
-    # 2. Экранируем амперсанды вне тегов
+    # 2. Полностью убираем ВСЕ HTML теги от модели — будем строить заново из Markdown
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # 3. Экранируем служебные символы HTML
     text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
 
-    # 3. Блоки кода — обрабатываем первыми чтобы не трогать содержимое
-    text = re.sub(
-        r"```(\w+)?\n?(.*?)```",
-        lambda m: f"<pre><code>{m.group(2).strip()}</code></pre>",
-        text, flags=re.DOTALL
-    )
-    text = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", text)
+    # 4. Блоки кода — первыми, чтобы не трогать содержимое
+    def replace_code_block(m):
+        code = m.group(2).strip()
+        code = code.replace("&lt;", "<").replace("&gt;", ">")  # в коде теги нужны как есть
+        return f"<pre><code>{code}</code></pre>"
 
-    # 4. Жирный и курсив
-    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"```(\w+)?\n?(.*?)```", replace_code_block, text, flags=re.DOTALL)
+    text = re.sub(r"`([^`\n]+)`", lambda m: f"<code>{m.group(1)}</code>", text)
+
+    # 5. Таблицы Markdown → убираем разделители, оставляем текст
+    text = re.sub(r"^\|[-:| ]+\|$", "", text, flags=re.MULTILINE)  # строка разделитель
+    text = re.sub(r"^\|(.*)\|$", lambda m: m.group(1).replace("|", " │ ").strip(), text, flags=re.MULTILINE)
+
+    # 6. Жирный и курсив
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
     text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
-    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
+    text = re.sub(r"\*([^*\n]+)\*", r"<i>\1</i>", text)
 
-    # 5. Заголовки → жирный
+    # 7. Заголовки → жирный
     text = re.sub(r"^#{1,3} (.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
 
-    # 6. Ссылки
+    # 8. Ссылки
     text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', text)
+
+    # 9. Убираем пустые строки больше двух подряд
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
