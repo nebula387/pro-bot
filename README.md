@@ -4,7 +4,7 @@ An intelligent Telegram bot that automatically routes requests to the best AI mo
 
 ## Live Demo
 
-➡️ **nebula387_pro_bot** — try it now
+➡️ [**pro-bot**](https://t.me/nebula387_pro_bot) — try it now
 
 ## How It Works
 
