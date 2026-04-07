@@ -17,6 +17,8 @@ The bot detects the topic of each message and selects the optimal model automati
 | Web search & news | Gemini Flash + Tavily | Speed + real-time data |
 | General chat | Gemini Flash | Fast and cost-efficient |
 
+(The models are currently free and may vary.)
+
 ## Features
 
 - **Smart routing** — custom classifier picks the right model per message
