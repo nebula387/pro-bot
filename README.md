@@ -39,7 +39,7 @@ The bot detects the topic of each message and selects the optimal model automati
 - VPS + systemd — production deployment
 
 ## Project Structure
-
+```
 pro-bot/
 ├── bot.py           # polling, voice, history, message formatting
 ├── classifier.py    # topic detection and city extraction
@@ -49,7 +49,7 @@ pro-bot/
 ├── prompts.py       # system prompts per category
 ├── config.example.py
 └── requirements.txt
-
+```
 ## Quick Start
 
 ```bash
