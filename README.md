@@ -65,4 +65,4 @@ All API keys have free tiers — see `config.example.py` for details.
 
 ## Related
 
-// - [**doc-helper**](https://github.com/nebula387/doc-agent) — AI agent for legal document analysis
+- [**doc-helper**](https://github.com/nebula387/doc-agent) — AI agent for legal document analysis
