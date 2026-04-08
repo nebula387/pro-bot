@@ -39,3 +39,30 @@ The bot detects the topic of each message and selects the optimal model automati
 - VPS + systemd — production deployment
 
 ## Project Structure
+
+pro-bot/
+├── bot.py           # polling, voice, history, message formatting
+├── classifier.py    # topic detection and city extraction
+├── llm.py           # OpenRouter API calls
+├── search.py        # Tavily search + WeatherAPI
+├── voice.py         # Groq Whisper integration
+├── prompts.py       # system prompts per category
+├── config.example.py
+└── requirements.txt
+
+## Quick Start
+
+```bash
+git clone https://github.com/nebula387/pro-bot.git
+cd pro-bot
+pip install -r requirements.txt
+cp config.example.py config.py
+# fill in your API keys in config.py
+python bot.py
+```
+
+All API keys have free tiers — see `config.example.py` for details.
+
+## Related
+
+// - [**doc-helper**](https://github.com/nebula387/doc-agent) — AI agent for legal document analysis
